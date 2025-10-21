@@ -1,26 +1,36 @@
 {
   "project_info": {
-    "project_number": "101255694275",
-    "project_id": "doctorappointmentapp-efa88",
-    "storage_bucket": "doctorappointmentapp-efa88.firebasestorage.app"
+    "project_number": "468384070343",
+    "project_id": "doctor-appointment-app-952fa",
+    "storage_bucket": "doctor-appointment-app-952fa.firebasestorage.app"
   },
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "1:101255694275:android:ec9b9ba90d38cec0e41f76",
+        "mobilesdk_app_id": "1:468384070343:android:1cf768ec086d572fe1dce2",
         "android_client_info": {
           "package_name": "com.example.doctor_appointment_app_frontend"
         }
       },
-      "oauth_client": [],
+      "oauth_client": [
+        {
+          "client_id": "468384070343-aggrb0rj5p7pojc8dsnds2ad07r3ecul.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
       "api_key": [
         {
-          "current_key": "AIzaSyBy3ciURfDiIGSBuBUsKiag5PuYiXkk9W0"
+          "current_key": "AIzaSyBj1KmM6cP-cLnSdafyecwlvOZ6-JctHLY"
         }
       ],
       "services": {
         "appinvite_service": {
-          "other_platform_oauth_client": []
+          "other_platform_oauth_client": [
+            {
+              "client_id": "468384070343-aggrb0rj5p7pojc8dsnds2ad07r3ecul.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
         }
       }
     }
