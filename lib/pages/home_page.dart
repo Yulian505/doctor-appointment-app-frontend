@@ -10,7 +10,8 @@ class HomePage extends StatefulWidget {
 }
 
 class _HomePageState extends State<HomePage> {
-  int _currentIndex = 0;
+  // Este valor siempre será 0 para esta página.
+  final int _currentIndex = 0;
 
   String _displayName() {
     final user = FirebaseAuth.instance.currentUser;
@@ -20,10 +21,10 @@ class _HomePageState extends State<HomePage> {
     return 'Usuario';
   }
 
+  // MODIFICACIÓN 2: Lógica de navegación corregida
   void _onTapNav(int index) {
-    setState(() {
-      _currentIndex = index;
-    });
+    // No necesitamos setState aquí.
+    // Si el índice es 0, ya estamos en esta página.
     if (index == 1) {
       Navigator.pushNamed(context, Routes.messages);
     } else if (index == 2) {
@@ -51,8 +52,9 @@ class _HomePageState extends State<HomePage> {
                   child: Card(
                     color: Colors.blue.shade50,
                     child: InkWell(
+                      // MODIFICACIÓN 1: Navegación a CitasPage
                       onTap: () {
-                        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Agendar una cita (no implementado)')));
+                        Navigator.pushNamed(context, Routes.citas);
                       },
                       child: Padding(
                         padding: const EdgeInsets.all(16.0),
@@ -132,6 +134,7 @@ class _HomePageState extends State<HomePage> {
         ),
       ),
       bottomNavigationBar: BottomNavigationBar(
+        // _currentIndex ahora es final y siempre 0
         currentIndex: _currentIndex,
         onTap: _onTapNav,
         items: const [

@@ -9,6 +9,7 @@ import 'settings_page.dart';
 import 'settings_profile_form.dart';
 import 'privacy_page.dart';
 import 'about_page.dart';
+import 'citas_page.dart'; 
 
 class Routes {
   static const String login = '/';
@@ -21,6 +22,7 @@ class Routes {
   static const String settingsProfile = '/settings/profile';
   static const String privacy = '/settings/privacy';
   static const String about = '/settings/about';
+  static const String citas = '/citas'; // Nueva ruta añadida
 
   static Route<dynamic> generateRoute(RouteSettings routeSettings) {
     switch (routeSettings.name) {
@@ -42,6 +44,8 @@ class Routes {
         return MaterialPageRoute(builder: (context) => const SettingsProfileForm());
       case privacy:
         return MaterialPageRoute(builder: (context) => const PrivacyPage());
+      case citas: // Nuevo case añadido
+        return MaterialPageRoute(builder: (context) => const CitasPage());
       case about:
         return MaterialPageRoute(builder: (context) => const AboutPage());
       default:
@@ -65,6 +69,7 @@ class Routes {
       settingsProfile: (context) => const SettingsProfileForm(),
       privacy: (context) => const PrivacyPage(),
       about: (context) => const AboutPage(),
+      citas: (context) => const CitasPage(), // Nueva entrada añadida
     };
   }
 }
