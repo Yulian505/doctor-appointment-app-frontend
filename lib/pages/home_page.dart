@@ -1,5 +1,7 @@
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'routes.dart';
 
 class HomePage extends StatefulWidget {
@@ -10,21 +12,23 @@ class HomePage extends StatefulWidget {
 }
 
 class _HomePageState extends State<HomePage> {
-  // Este valor siempre será 0 para esta página.
+  // bottom nav index for UI (home is 0)
   final int _currentIndex = 0;
 
-  String _displayName() {
-    final user = FirebaseAuth.instance.currentUser;
+  final FirebaseAuth _auth = FirebaseAuth.instance;
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  bool _loading = false; // for registration actions
+  bool _isRefreshing = false;
+  late List<String> _specialistsList;
+
+  String _fallbackDisplayName(User? user) {
     if (user == null) return 'Usuario';
     if (user.displayName != null && user.displayName!.isNotEmpty) return user.displayName!;
     if (user.email != null && user.email!.isNotEmpty) return user.email!.split('@').first;
     return 'Usuario';
   }
 
-  // MODIFICACIÓN 2: Lógica de navegación corregida
   void _onTapNav(int index) {
-    // No necesitamos setState aquí.
-    // Si el índice es 0, ya estamos en esta página.
     if (index == 1) {
       Navigator.pushNamed(context, Routes.messages);
     } else if (index == 2) {
@@ -32,109 +36,332 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
+  Future<void> _handleRefresh() async {
+    setState(() => _isRefreshing = true);
+    
+    try {
+      final user = _auth.currentUser;
+      if (user != null) {
+        await user.reload();
+        // Force stream update by touching the document
+        await _firestore.collection('usuarios').doc(user.uid).get();
+        
+        // Add artificial delay to make refresh more visible
+        await Future.delayed(const Duration(milliseconds: 800));
+      }
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Error al refrescar los datos'),
+          duration: Duration(seconds: 2),
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _isRefreshing = false);
+      }
+    }
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _specialistsList = ['Cardiólogo', 'Pediatra', 'Dermatólogo', 'Ortopedista', 'Ginecólogo'];
+  }
+
+  void _showSpecialistOptions(String name) {
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(name),
+        content: Text('Opciones para $name'),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(ctx).pop(), child: const Text('Cerrar')),
+          TextButton(
+            onPressed: () {
+              Navigator.of(ctx).pop();
+              Navigator.pushNamed(context, Routes.citas);
+            },
+            child: const Text('Agendar cita'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  IconData _iconForSpecialist(String name) {
+    final lower = name.toLowerCase();
+    if (lower.contains('cardio')) return Icons.favorite;
+    if (lower.contains('pedia')) return Icons.child_care;
+    if (lower.contains('derm')) return Icons.medical_services;
+    if (lower.contains('ortho')) return Icons.accessibility;
+    if (lower.contains('gine') || lower.contains('ginec')) return Icons.healing;
+    return Icons.person;
+  }
+
+  Future<void> _showPatientRegistrationForm() async {
+    final _formKey = GlobalKey<FormState>();
+    final pName = TextEditingController();
+    final pPhone = TextEditingController();
+    final pAge = TextEditingController();
+    final pSymptoms = TextEditingController();
+
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Registrar Paciente'),
+        content: Form(
+          key: _formKey,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextFormField(
+                controller: pName,
+                decoration: const InputDecoration(labelText: 'Nombre'),
+                validator: (v) => v == null || v.trim().isEmpty ? 'Requerido' : null,
+              ),
+              TextFormField(controller: pPhone, decoration: const InputDecoration(labelText: 'Teléfono'), keyboardType: TextInputType.phone),
+              TextFormField(controller: pAge, decoration: const InputDecoration(labelText: 'Edad'), keyboardType: TextInputType.number),
+              TextFormField(controller: pSymptoms, decoration: const InputDecoration(labelText: 'Síntomas'), maxLines: 3),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(ctx).pop(), child: const Text('Cancelar')),
+          ElevatedButton(
+            onPressed: () async {
+              if (!_formKey.currentState!.validate()) return;
+              Navigator.of(ctx).pop();
+              await _registerPatient(
+                nombre: pName.text.trim(),
+                telefono: pPhone.text.trim(),
+                edad: pAge.text.trim(),
+                sintomas: pSymptoms.text.trim(),
+              );
+            },
+            child: const Text('Registrar'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _registerPatient({required String nombre, String? telefono, String? edad, String? sintomas}) async {
+    if (nombre.isEmpty) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('El nombre es obligatorio')));
+      return;
+    }
+    setState(() => _loading = true);
+    try {
+      final docRef = await _firestore.collection('pacientes').add({
+        'nombre': nombre,
+        'telefono': telefono ?? '',
+        'edad': edad ?? '',
+        'sintomas': sintomas ?? '',
+        'createdAt': FieldValue.serverTimestamp(),
+      });
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Paciente registrado')));
+      // ignore: avoid_print
+      print('[home_page] Paciente registrado: ${docRef.id}');
+    } catch (e) {
+      // ignore: avoid_print
+      print('[home_page] Error al registrar paciente: $e');
+      if (!mounted) return;
+      final err = e.toString();
+      if (err.toLowerCase().contains('permission') || err.toLowerCase().contains('permission_denied') || err.toLowerCase().contains('permis')) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Permisos insuficientes en Firestore')));
+        showDialog<void>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Text('Permisos insuficientes'),
+            content: const Text('La escritura fue denegada por las reglas de Firestore. Ajusta las reglas o crea un endpoint seguro en servidor.'),
+            actions: [TextButton(onPressed: () => Navigator.of(ctx).pop(), child: const Text('OK'))],
+          ),
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error al registrar: $e')));
+      }
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Inicio')),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('Hola, ${_displayName()}', style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
-            const SizedBox(height: 8),
-            const Text('Bienvenido a tu panel de salud', style: TextStyle(color: Colors.black54)),
-            const SizedBox(height: 20),
+      appBar: AppBar(
+        title: const Text('Inicio'),
+      ),
+      body: RefreshIndicator(
+        displacement: 50.0, // Increased for better visibility
+        strokeWidth: 4.0, // Thicker stroke
+        color: Colors.blue.shade700,
+        onRefresh: _handleRefresh,
+        child: CustomScrollView(
+          physics: const BouncingScrollPhysics(), // Simplified physics for more natural bounce
+          slivers: [
+            SliverPadding(
+              padding: const EdgeInsets.all(16.0),
+              sliver: SliverList(
+                delegate: SliverChildListDelegate(
+                  [
+                    StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+                      stream: _auth.currentUser == null ? null : _firestore.collection('usuarios').doc(_auth.currentUser!.uid).snapshots(),
+                      builder: (context, snapshot) {
+                        final user = _auth.currentUser;
+                        String name = _fallbackDisplayName(user);
+                        if (snapshot.hasData && snapshot.data!.exists) {
+                          final data = snapshot.data!.data();
+                          if (data != null && (data['nombre'] ?? '').toString().trim().isNotEmpty) {
+                            name = data['nombre'].toString();
+                          }
+                        }
 
-            Row(
-              children: [
-                Expanded(
-                  child: Card(
-                    color: Colors.blue.shade50,
-                    child: InkWell(
-                      // MODIFICACIÓN 1: Navegación a CitasPage
-                      onTap: () {
-                        Navigator.pushNamed(context, Routes.citas);
-                      },
-                      child: Padding(
-                        padding: const EdgeInsets.all(16.0),
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: const [
-                            Icon(Icons.calendar_today, size: 36, color: Color(0xFF0D47A1)),
-                            SizedBox(height: 8),
-                            Text('Agendar una Cita', textAlign: TextAlign.center),
+                        return Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: Text('Hola, $name', style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
+                                ),
+                                const SizedBox(width: 8),
+                                ElevatedButton.icon(onPressed: _loading ? null : _showPatientRegistrationForm, icon: const Icon(Icons.person_add), label: const Text('Registrar')),
+                              ],
+                            ),
+                            const SizedBox(height: 8),
+                            const Text('Bienvenido a tu panel de salud', style: TextStyle(color: Colors.black54)),
+                            const SizedBox(height: 12),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(Icons.arrow_downward, color: Colors.blue.shade700, size: 16),
+                                const SizedBox(width: 8),
+                                Text(
+                                  _isRefreshing ? 'Actualizando...' : 'Desliza hacia abajo para actualizar',
+                                  style: TextStyle(color: Colors.blue.shade700, fontSize: 13, fontWeight: FontWeight.w500),
+                                ),
+                              ],
+                            ),
                           ],
+                        );
+                      },
+                    ),
+
+                    const SizedBox(height: 20),
+
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Card(
+                            color: Colors.blue.shade50,
+                            child: InkWell(
+                              onTap: () => Navigator.pushNamed(context, Routes.citas),
+                              child: Padding(
+                                padding: const EdgeInsets.all(16.0),
+                                child: Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: const [
+                                    Icon(Icons.calendar_today, size: 36, color: Color(0xFF0D47A1)),
+                                    SizedBox(height: 8),
+                                    Text('Agendar una Cita', textAlign: TextAlign.center),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
                         ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Card(
+                            color: Colors.green.shade50,
+                            child: InkWell(
+                              onTap: () => ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Consejos médicos (no implementado)'))),
+                              child: Padding(
+                                padding: const EdgeInsets.all(16.0),
+                                child: Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: const [
+                                    Icon(Icons.health_and_safety, size: 36, color: Color(0xFF0D47A1)),
+                                    SizedBox(height: 8),
+                                    Text('Consejos médicos', textAlign: TextAlign.center),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+
+                    const SizedBox(height: 20),
+
+                    const Text('Especialistas', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600)),
+                    const SizedBox(height: 8),
+                    Card(
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12.0)),
+                      elevation: 2,
+                      child: Column(
+                        children: _specialistsList.map((s) {
+                          return Column(
+                            children: [
+                              Dismissible(
+                                key: ValueKey(s),
+                                direction: DismissDirection.endToStart,
+                                background: Container(
+                                  alignment: Alignment.centerRight,
+                                  padding: const EdgeInsets.symmetric(horizontal: 16.0),
+                                  decoration: BoxDecoration(color: Colors.red.shade400, borderRadius: BorderRadius.circular(12.0)),
+                                  child: const Icon(Icons.delete, color: Colors.white),
+                                ),
+                                onDismissed: (direction) {
+                                  setState(() {
+                                    _specialistsList.remove(s);
+                                  });
+                                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$s eliminado')));
+                                },
+                                child: ListTile(
+                                  title: Text(s),
+                                  leading: Icon(_iconForSpecialist(s), color: Colors.blue.shade700),
+                                  onTap: () => _showSpecialistOptions(s),
+                                  onLongPress: () => _showSpecialistOptions(s),
+                                ),
+                              ),
+                              if (_specialistsList.last != s) const Divider(height: 1),
+                            ],
+                          );
+                        }).toList(),
                       ),
                     ),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Card(
-                    color: Colors.green.shade50,
-                    child: InkWell(
-                      onTap: () {
-                        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Consejos médicos (no implementado)')));
-                      },
-                      child: Padding(
-                        padding: const EdgeInsets.all(16.0),
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: const [
-                            Icon(Icons.health_and_safety, size: 36, color: Color(0xFF0D47A1)),
-                            SizedBox(height: 8),
-                            Text('Consejos médicos', textAlign: TextAlign.center),
-                          ],
-                        ),
+
+                    const SizedBox(height: 20),
+
+                    const Text('Recomendaciones', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600)),
+                    const SizedBox(height: 8),
+                    SizedBox(
+                      height: 120,
+                      child: ListView(
+                        scrollDirection: Axis.horizontal,
+                        children: [
+                          Card(child: SizedBox(width: 160, child: Center(child: Text('Consulta rápida')))),
+                          Card(child: SizedBox(width: 160, child: Center(child: Text('Chequeo preventivo')))),
+                          Card(child: SizedBox(width: 160, child: Center(child: Text('Vacunas')))),
+                        ],
                       ),
                     ),
-                  ),
+
+                    const SizedBox(height: 30),
+                  ],
                 ),
-              ],
-            ),
-
-            const SizedBox(height: 20),
-
-            const Text('Especialistas', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600)),
-            const SizedBox(height: 8),
-            Card(
-              child: Column(
-                children: const [
-                  ListTile(title: Text('Cardiólogo'), leading: Icon(Icons.favorite)),
-                  Divider(),
-                  ListTile(title: Text('Pediatra'), leading: Icon(Icons.child_care)),
-                  Divider(),
-                  ListTile(title: Text('Dermatólogo'), leading: Icon(Icons.medical_services)),
-                  Divider(),
-                  ListTile(title: Text('Ortopedista'), leading: Icon(Icons.accessibility)),
-                  Divider(),
-                  ListTile(title: Text('Ginecólogo'), leading: Icon(Icons.healing)),
-                ],
-              ),
-            ),
-
-            const SizedBox(height: 20),
-
-            const Text('Recomendaciones', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600)),
-            const SizedBox(height: 8),
-            SizedBox(
-              height: 120,
-              child: ListView(
-                scrollDirection: Axis.horizontal,
-                children: [
-                  Card(child: SizedBox(width: 160, child: Center(child: Text('Consulta rápida')))),
-                  Card(child: SizedBox(width: 160, child: Center(child: Text('Chequeo preventivo')))),
-                  Card(child: SizedBox(width: 160, child: Center(child: Text('Vacunas')))),
-                ],
               ),
             ),
           ],
         ),
       ),
       bottomNavigationBar: BottomNavigationBar(
-        // _currentIndex ahora es final y siempre 0
         currentIndex: _currentIndex,
         onTap: _onTapNav,
         items: const [
