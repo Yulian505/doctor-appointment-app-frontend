@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
@@ -19,16 +20,38 @@ class _LoginPageState extends State<LoginPage> {
   final TextEditingController passwordController = TextEditingController();
 
   final FirebaseAuth auth = FirebaseAuth.instance;
+  final FirebaseFirestore firestore = FirebaseFirestore.instance;
+
+  Future<void> _navigateBasedOnRole() async {
+    try {
+      final user = auth.currentUser;
+      if (user == null) return;
+
+      final userDoc = await firestore.collection('usuarios').doc(user.uid).get();
+      final rol = userDoc.data()?['rol'] ?? 'Paciente';
+
+      if (!mounted) return;
+      
+      if (rol == 'Médico') {
+        Navigator.pushReplacementNamed(context, Routes.dashboard);
+      } else {
+        Navigator.pushReplacementNamed(context, Routes.home);
+      }
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error al obtener rol: $e')));
+      Navigator.pushReplacementNamed(context, Routes.home);
+    }
+  }
 
   Future<void> _signInWithGoogle() async {
     try {
       if (kIsWeb) {
-        // On web use the built-in GoogleAuthProvider
         GoogleAuthProvider googleProvider = GoogleAuthProvider();
         await auth.signInWithPopup(googleProvider);
       } else {
         final GoogleSignInAccount? googleUser = await GoogleSignIn().signIn();
-        if (googleUser == null) return; // user aborted
+        if (googleUser == null) return;
         final GoogleSignInAuthentication googleAuth = await googleUser.authentication;
         final credential = GoogleAuthProvider.credential(
           accessToken: googleAuth.accessToken,
@@ -37,33 +60,26 @@ class _LoginPageState extends State<LoginPage> {
         await auth.signInWithCredential(credential);
       }
       if (!mounted) return;
-  Navigator.pushReplacementNamed(context, Routes.home);
+      _navigateBasedOnRole();
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error Google Sign-In: $e')));
     }
   }
 
-  // For GitHub and Microsoft we provide a web-based OAuth flow; mobile flows require
-  // platform setup (OAuth redirect URIs) and are environment-specific. On web we can
-  // use Firebase's OAuthProvider directly.
   Future<void> _signInWithOAuthProvider(String providerId) async {
     try {
       if (kIsWeb) {
         final provider = OAuthProvider(providerId);
         await auth.signInWithPopup(provider);
         if (!mounted) return;
-        Navigator.pushReplacementNamed(context, '/home');
+        _navigateBasedOnRole();
         return;
       }
 
-      // On mobile: open external browser for OAuth and capture token with flutter_web_auth.
-      // This is a simplified flow and requires correct OAuth app configuration.
       final callbackUrlScheme = 'flutterdoctorauth';
       final authUrl = 'https://example.com/oauth?provider=$providerId&redirect_uri=$callbackUrlScheme://auth';
       final result = await FlutterWebAuth.authenticate(url: authUrl, callbackUrlScheme: callbackUrlScheme);
-      // result contains the redirect URL with tokens/params; in a real implementation
-      // exchange the code for an access token and create a Firebase credential.
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('OAuth flow finished: $result')));
     } catch (e) {
       if (!mounted) return;
@@ -82,7 +98,6 @@ class _LoginPageState extends State<LoginPage> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              // Logo / header
               Column(
                 children: const [
                   Icon(Icons.medical_services, size: 72, color: Color(0xFF0D47A1)),
@@ -95,7 +110,6 @@ class _LoginPageState extends State<LoginPage> {
 
               const SizedBox(height: 20),
 
-              // Card with form
               Card(
                 elevation: 4,
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -148,7 +162,6 @@ class _LoginPageState extends State<LoginPage> {
 
                         const SizedBox(height: 8),
 
-                        // Forgot password aligned to end
                         Align(
                           alignment: Alignment.centerRight,
                           child: TextButton(
@@ -161,7 +174,6 @@ class _LoginPageState extends State<LoginPage> {
 
                         const SizedBox(height: 8),
 
-                        // Login button
                         SizedBox(
                           height: 48,
                           child: ElevatedButton(
@@ -183,8 +195,7 @@ class _LoginPageState extends State<LoginPage> {
                                   ScaffoldMessenger.of(context).showSnackBar(
                                     SnackBar(content: Text("Bienvenido ${userCredential.user!.email}")),
                                   );
-                                  // Navegar al home/dashboard
-                                  Navigator.pushReplacementNamed(context, Routes.home);
+                                  _navigateBasedOnRole();
                                 } on FirebaseAuthException catch (e) {
                                   String message = "";
                                   if (e.code == 'user-not-found') {
@@ -207,7 +218,6 @@ class _LoginPageState extends State<LoginPage> {
 
                         const SizedBox(height: 12),
 
-                        // Create account
                         SizedBox(
                           height: 48,
                           child: OutlinedButton(
@@ -228,7 +238,6 @@ class _LoginPageState extends State<LoginPage> {
 
               const SizedBox(height: 12),
 
-              // Social login header
               SizedBox(
                 width: size.width * 0.8,
                 child: const Text(
@@ -240,7 +249,6 @@ class _LoginPageState extends State<LoginPage> {
 
               const SizedBox(height: 8),
 
-              // Social login buttons
               SizedBox(
                 width: size.width * 0.8,
                 child: Row(
@@ -287,7 +295,6 @@ class _LoginPageState extends State<LoginPage> {
 
               const SizedBox(height: 16),
 
-              // Small footer text
               SizedBox(
                 width: size.width * 0.8,
                 child: const Text(

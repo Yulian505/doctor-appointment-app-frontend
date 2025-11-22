@@ -21,11 +21,14 @@ class _ProfilePageState extends State<ProfilePage> {
   final padecimientosController = TextEditingController();
 
   bool _loading = false;
+  String selectedRole = 'paciente';
+  bool isUpdatingRole = false;
 
   @override
   void initState() {
     super.initState();
     _loadUserData();
+    _loadUserRole();
   }
 
   @override
@@ -60,6 +63,31 @@ class _ProfilePageState extends State<ProfilePage> {
     }
   }
 
+  Future<void> _loadUserRole() async {
+    final user = _auth.currentUser;
+    if (user == null) return;
+    try {
+      final doc = await _firestore.collection('users').doc(user.uid).get();
+      
+      if (doc.exists) {
+        String role = doc['role'] ?? 'paciente';
+        if (role != 'paciente' && role != 'medico') {
+          role = 'paciente';
+        }
+        setState(() => selectedRole = role);
+      } else {
+        await _firestore.collection('users').doc(user.uid).set({
+          'email': user.email,
+          'role': 'paciente',
+          'createdAt': FieldValue.serverTimestamp(),
+        });
+        setState(() => selectedRole = 'paciente');
+      }
+    } catch (e) {
+      print('Error loading role: $e');
+    }
+  }
+
   Future<void> _saveUserData() async {
     final user = _auth.currentUser;
     if (user == null) {
@@ -84,6 +112,28 @@ class _ProfilePageState extends State<ProfilePage> {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error al guardar: $e')));
     } finally {
       if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _updateRole(String newRole) async {
+    setState(() => isUpdatingRole = true);
+    try {
+      await _firestore.collection('users').doc(_auth.currentUser!.uid).set(
+        {'role': newRole, 'updatedAt': FieldValue.serverTimestamp()},
+        SetOptions(merge: true),
+      );
+      setState(() => selectedRole = newRole);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Rol actualizado a ${newRole == 'medico' ? 'Médico' : 'Paciente'}')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error: ${e.toString()}')),
+      );
+    } finally {
+      if (mounted) setState(() => isUpdatingRole = false);
     }
   }
 
@@ -139,11 +189,8 @@ class _ProfilePageState extends State<ProfilePage> {
       });
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Paciente registrado')));
-      // debug print
-      // ignore: avoid_print
       print('[profile_page] Paciente registrado: ${docRef.id}');
     } catch (e) {
-      // ignore: avoid_print
       print('[profile_page] Error al registrar paciente: $e');
       if (!mounted) return;
       final err = e.toString();
@@ -181,6 +228,36 @@ class _ProfilePageState extends State<ProfilePage> {
               const SizedBox(width: 8),
               Expanded(child: Text('Correo: ${user?.email ?? 'No disponible'}')),
             ]),
+            const SizedBox(height: 12),
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(16.0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('Rol actual:', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
+                    const SizedBox(height: 8),
+                    DropdownButtonFormField<String>(
+                      value: selectedRole,
+                      decoration: const InputDecoration(
+                        border: OutlineInputBorder(),
+                      ),
+                      items: const [
+                        DropdownMenuItem(value: 'paciente', child: Text('Paciente')),
+                        DropdownMenuItem(value: 'medico', child: Text('Médico')),
+                      ],
+                      onChanged: isUpdatingRole
+                          ? null
+                          : (value) {
+                              if (value != null) {
+                                _updateRole(value);
+                              }
+                            },
+                    ),
+                  ],
+                ),
+              ),
+            ),
             const SizedBox(height: 12),
             ElevatedButton.icon(onPressed: _loading ? null : _showPatientRegistrationForm, icon: const Icon(Icons.person_add), label: const Text('Registrar Paciente'), style: ElevatedButton.styleFrom(backgroundColor: Colors.teal)),
             const SizedBox(height: 12),
